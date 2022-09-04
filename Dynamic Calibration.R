@@ -17,6 +17,7 @@ STDlist <- list()#the list of every concentration STD
 ALLSTD <- data.frame() #the chart of all STD
 jzsf <-
   read_xlsx("jzsf.xlsx") #the original file where there are only needed data exists #
+coefficient_for_DynALL<-c(2E-07,0.0002,0.3284)
 getRRFandTime <-
   function(jzsf, c, isSTD = 1)
     #the function to extract data, if isSTD=1,will extract STDdata,or extract others#
@@ -33,6 +34,8 @@ getRRFandTime <-
       if (isSTD == 1)
       {
         if (grepl("STD", jzsf[i, 2]) && (c %in% jzsf[i, 5]))
+          #check what we need,if you want this program more usability, you should change
+          #the number of jzsf[,2] into jzsf[,"string"] 
         {
           temprrf[j] = unlist(jzsf[i, "RRF"])
           temptime[j] = unlist(jzsf[i, "TIME"])
@@ -62,9 +65,9 @@ getRRFandTime <-
     )
     return(temp)
   }
-getResult <-
-  function(jzsf, c = -10, isSTD = 1)
+getResult <- function(jzsf, c = -10, isSTD = 1)
     #save the data as list for convenience and append to the xlsx file
+    #if the STD has other concentration, this function need to change
   {
     if (isSTD == 1)
     {
@@ -93,7 +96,7 @@ getResult <-
   }
 #init<-function () #this function has bug, we'd better use getresult twice instead of using it.
 #{
-STDlist <- getResult(jzsf)
+STDlist <- getResult(jzsf)#save all std, classified by concentration
 for (i in names(STDlist))
 {
   ALLSTD <- rbind(ALLSTD, STDlist[[i]])
@@ -126,8 +129,10 @@ get_data_root<-function(a,b,c,sample)
 #upon this is the preparation ,below this is the calculation
 
 
-Stat_All <-mean(ALLSTD$RRF) #this order is for calculation the Stat_ALL
-close <-list()
+Stat_All <-mean(ALLSTD$RRF)
+  #this order is for calculation the Stat_ALL
+   
+#close <-list()
 #before you use this program, you should enter close firstly.
 #unless you needn't use the functions about close or closest.
 #also, using the Formal Variables,you can change this variables as other name.
@@ -141,7 +146,7 @@ Stat_Close <- function(close)
 {
   close1 <- close[[1]]
   close2 <- close[[2]]
-  tmp <- rbind(close1, close2)
+  tmp <- rbind(close1, close2)#bind them and get the mean
   return (mean(tmp[["RRF"]]))
 }
 
@@ -150,8 +155,22 @@ Stat_Closest <- function(close)
 {
   return (mean(close$RRF))
 }
-#upon this is statRRF
 
+Stat_RRF<-function(sample,close,closest)
+  #output the result of whole StatRRF
+{
+  tmp<-list(close,closest)
+  Stat_All_tmp<-rep(Stat_All,6)
+  nRRF<-data.frame(
+    "ALL"= Stat_All_tmp,
+    "close"=Stat_Close(tmp),
+    "closest"=Stat_Closest(closest)
+  )
+  AAIS<-sample$RRF*sample$concentration/500
+  result<-AAIS*500/nRRF
+  return (result)
+}
+#upon this is statRRF
 Dyn_Close <- function(close)
 {
   Y <- c()
@@ -160,17 +179,41 @@ Dyn_Close <- function(close)
   X <-(close[[1]]$TIME + close[[2]]$TIME) / 2
   return (lm(Y ~ I(X ^ 2)+X))
 }
-Dyn_closest <- function(close)
+Dyn_ALL<-function(sample)
+{
+  a<-coefficient_for_DynALL[1]
+  b<-coefficient_for_DynALL[2]
+  c<-coefficient_for_DynALL[3]
+  result<-a*sample$TIME^2+b*sample$TIME+c
+  return (result)
+}
+Dyn_Closest <- function(close)
   #to avoid error, I encapsulate it with a function
 {
   lm(close$RRF ~ close$TIME)
 }
-
+Dyn_RRF<-function(sample,close,closest)
+  # output the result of whole StatRRF
+{
+  tmp<-Dyn_Closest(closest)[[1]]
+  est<-tmp[1]+sample$TIME*tmp[2]
+  tmpclose<-list(close,closest)
+  tmp<-Dyn_Close(tmpclose)[[1]]
+  ose<-tmp[1]+tmp[2]*sample$TIME^2+tmp[3]*sample$TIME
+  nRRF<-data.frame(
+    "ALL"=Dyn_ALL(sample),
+    "close"=ose,
+    "closest"=est
+  )
+  AAIS<-sample$RRF*sample$concentration/500 #AAIS=A sample / A IS
+  result<-AAIS*500/nRRF
+  return(result)
+}
 #upon this is DynRRF, if you want to do the regression in the excel
 #you can change the return order to return Y and X, which is easy to send into excel
 #the Cal ways can also do that.
 
-Stat_Cal <- function(STDlist, method)
+Stat_CalPart1 <- function(STDlist, method)#the result is coefficients
   #method = 1 , 2, 3, 4
   #way 1,3 is linear
   #way 1,2 has a forced 0-intercept
@@ -193,10 +236,29 @@ Stat_Cal <- function(STDlist, method)
     if (method == 4)
       return (lm(Y ~ I(X ^ 2) + X))
   # 0 means forcing 0-intercept
+}
+Stat_Cal<-function(STDlist,sample)
+  #output the result of whole StatRRF
+{
+  b<-Stat_CalPart1(STDlist,2)[[1]]
+  a<-Stat_CalPart1(STDlist,3)[[1]]
+  c<-Stat_CalPart1(STDlist,4)[[1]]
+  RRFC<-sample[,"concentration"]*sample[,"RRF"]
+  for (i in 1:nrow(sample))
+  {
+    bxtmp<-get_root(b[1],b[2],0,RRFC[i])
+    cxtmp<-get_root(c[2],c[3],c[1],RRFC[i])
   }
-
+  result<-data.frame(
+    "bx"=RRFC/Stat_CalPart1(STDlist,1)[[1]],
+    "bx+a"=(RRFC-a[1])/a[2],
+    "bx^2+ax"=bxtmp,
+    "bx^2+ax+c"=cxtmp
+  )
+  return (result)
+}
 Dyn_CalPart1 <- function(time, method)
-  #this function is one part of Dyn_cal, to calculate the result
+  #this function is one part of DynCal, to calculate the coefficient between RRF and concentration
 {
   time<-as.numeric(time)
   c <- c()
@@ -205,7 +267,7 @@ Dyn_CalPart1 <- function(time, method)
   for (i in STDlist)
   {
     c <- append(c, i$concentration[1]) #get concentration
-    tmp <- append(tmp, lm(i$RRF ~ i$TIME)$coefficients) 
+    tmp <- append(tmp, lm(i$RRF ~ i$TIME)$coefficients) #tmp get the coefficient between RRF and time
     # do regression about time on each concentration,save the coefficients into tmp
   }
   for (i in seq(1,14,by=2))
@@ -284,4 +346,27 @@ Dyn_CalPart3<-function(sample,method)
     }
   }
   return (result)
+}
+Dyn_Cal<-function(sample)
+  #output the result of whole StatRRF
+{
+  result<-data.frame(
+    "bx"=Dyn_CalPart3(sample,1),
+    "bx^2+ax"=Dyn_CalPart3(sample,2),
+    "bx+a"=Dyn_CalPart3(sample,3),
+    "bx^2+ax+c"=Dyn_CalPart3(sample,2)
+  )
+  return (result)
+}
+output<-function(sample,close,closest)
+  #output everything
+{
+  result<-list(
+  "StatRRF"=Stat_RRF(sample,close,closest),
+  "DynRRF"=Dyn_RRF(sample,close,closest),
+  "StatCal"=Stat_Cal(STDlist,sample),
+  "DynCal"=Dyn_Cal(sample)
+  )
+  return (result)
+  
 }
