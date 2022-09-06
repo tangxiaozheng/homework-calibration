@@ -1,14 +1,3 @@
-#this program is made for verify the usability of 
-#"Dynamic Calibration Approach for Determining Catechins and Gallic Acid in Green Tea Using LC-ESI/MS". 
-# this program can not work on its own. the "Dyn_RFFAll" must be used by Excel"
-#and the excel must be prepared like the sample.
-
-#reference:
-#Bedner, Mary, and David L. Duewer. ‘Dynamic Calibration Approach for Determining Catechins and Gallic Acid in Green Tea Using LC-ESI/MS’. 
-#Analytical Chemistry, vol. 83, no. 16, Aug. 2011, pp. 6169–76. 
-#Web of Science Nextgen, https://doi.org/10.1021/ac200372d.
-
-
 library(readxl)
 library(xlsx)
 path <- "D:\\Document\\新建文件夹"#the path of workspace
@@ -258,17 +247,17 @@ Stat_Cal<-function(STDlist,sample)
   return (result)
 }
 Dyn_CalPart1 <- function(time, method)
-  #this function is one part of DynCal, to calculate the coefficient between RRF and concentration
+  #this function is one part of DynCal, to calculate the coefficient between RRFC and concentration
 {
   time<-as.numeric(time)
   c <- c()
   tmp <- list()
   tmp2 <- c()
   for (i in STDlist)
+    # do regression about time on each concentration,save the coefficients into tmp
   {
     c <- append(c, i$concentration[1]) #get concentration
-    tmp <- append(tmp, lm(i$RRF ~ i$TIME)$coefficients) #tmp get the coefficient between RRF and time
-    # do regression about time on each concentration,save the coefficients into tmp
+    tmp <- append(tmp, lm(i$RRF ~ i$TIME)$coefficients) #tmp get the coefficient RRF-t
   }
   for (i in seq(1,14,by=2))
     tmp2 <- append(tmp2, tmp[[i + 1]] * time + tmp[[i]])
@@ -276,7 +265,7 @@ Dyn_CalPart1 <- function(time, method)
   #then do regression between RRF(in theory) with concentration
   Y <- tmp2#Y=RRF
   X <- c#concentration
-  Y<-Y*X
+  Y<-Y*X #RRFC
   if (method == 1)
     return (lm(Y ~ X + 0))
   if (method == 2)
